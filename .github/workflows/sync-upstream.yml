@@ -1,0 +1,101 @@
+name: Sync Upstream
+
+on:
+  schedule:
+    # 每天 UTC 时间 0:00 运行一次
+    - cron: '0 0 * * *'
+  workflow_dispatch: # 允许手动触发
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    strategy:
+      matrix:
+        upstream:
+          - name: "QwenLM"
+            url: "https://github.com/QwenLM/Qwen3-TTS.git"
+            branch: "main"
+          - name: "dffdeeq"
+            url: "https://github.com/dffdeeq/Qwen3-TTS-streaming.git"
+            branch: "main"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # 获取完整历史记录
+
+      - name: Configure Git
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Add upstream remote and fetch
+        run: |
+          git remote add "${{ matrix.upstream.name }}" "${{ matrix.upstream.url }}"
+          git fetch "${{ matrix.upstream.name }}"
+
+      - name: Check for updates
+        id: check_updates
+        run: |
+          # 检查上游是否有新提交
+          UPSTREAM_REF="${{ matrix.upstream.name }}/${{ matrix.upstream.branch }}"
+          NEW_COMMITS=$(git rev-list --count HEAD.."${UPSTREAM_REF}" 2>/dev/null || echo "0")
+          echo "new_commits=$NEW_COMMITS" >> $GITHUB_OUTPUT
+          echo "upstream_ref=$UPSTREAM_REF" >> $GITHUB_OUTPUT
+          echo "Upstream ${{ matrix.upstream.name }} has $NEW_COMMITS new commits"
+
+          if [ "$NEW_COMMITS" -eq 0 ]; then
+            echo "No new commits to sync from ${{ matrix.upstream.name }}"
+            exit 0
+          fi
+
+      - name: Create sync branch
+        id: create_branch
+        if: steps.check_updates.outputs.new_commits != '0'
+        run: |
+          BRANCH_NAME="sync-${{ matrix.upstream.name }}-$(date +%Y%m%d-%H%M%S)"
+          echo "branch_name=$BRANCH_NAME" >> $GITHUB_OUTPUT
+          git checkout -b "$BRANCH_NAME"
+
+      - name: Merge upstream changes
+        if: steps.check_updates.outputs.new_commits != '0'
+        continue-on-error: true
+        run: |
+          UPSTREAM_REF="${{ steps.check_updates.outputs.upstream_ref }}"
+          # 尝试合并上游更新
+          git merge "$UPSTREAM_REF" --no-edit -m "Merge upstream ${{ matrix.upstream.name }}" && exit 0
+
+          # 如果有冲突，创建说明文件
+          echo "Merge conflicts detected. Please resolve manually."
+          git status > merge_conflicts.txt
+          exit 1
+
+      - name: Push sync branch
+        if: steps.check_updates.outputs.new_commits != '0'
+        run: |
+          git push origin "${{ steps.create_branch.outputs.branch_name }}"
+
+      - name: Create Pull Request
+        if: steps.check_updates.outputs.new_commits != '0'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          branch: "${{ steps.create_branch.outputs.branch_name }}"
+          title: "Sync upstream ${{ matrix.upstream.name }}"
+          body: |
+            ## 自动同步上游更新 - ${{ matrix.upstream.name }}
+
+            此 PR 自动同步 ${{ matrix.upstream.name }} 仓库的最新更新。
+
+            **上游仓库**: ${{ matrix.upstream.url }}
+
+            ### 更新内容
+            ```
+            $(git log "${{ steps.check_updates.outputs.upstream_ref }}" --not HEAD --oneline | head -20)
+            ```
+
+            请检查更改并通过此 PR 来合并上游更新。
+          draft: false
