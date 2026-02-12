@@ -15,6 +15,12 @@ Added in this fork:
 - **Hann window crossfade** - click-free chunk boundaries with proper fade-in/fade-out
 - **Repetition penalty for streaming** - prevents token loops that cause looping audio and runaway generation. Defaults to 1.0 (disabled) because streaming generates frame-by-frame with CUDA graph constraints where repetition manifests differently than the non-streaming path (which defaults to 1.05)
 
+Experiments on branch: [wip/experimental](https://github.com/rekuenkdr/Qwen3-TTS-streaming/tree/wip/experimental)
+- **`generate_fast()` codebook predictor** - lightweight codebook generation that skips HuggingFace `generate()` overhead for the 31-step autoregressive loop (1.13x faster per-frame)
+- **Manual CUDA graph capture for codebook predictor** - captures the entire 31-step codebook loop as a single CUDA graph replay (2.15x faster per-frame, 12.94ms vs 27.88ms baseline)
+- **Batch streaming** - generates audio for multiple texts in parallel via `batch_stream_generate_voice_clone()`, with per-item state tracking and independent EOS detection
+- **Async CUDA stream decoding** - overlaps AR token generation with speech decoding on a separate CUDA stream (disabled by default, no measurable speedup on single GPU but may show improvements in multi-GPU setups)
+
 ## Installation
 
 ```bash
@@ -178,7 +184,7 @@ model.enable_streaming_optimizations(
 | `use_fast_codebook` | False | Use fast codebook generation (experimental) |
 | `compile_codebook_predictor` | True | Apply torch.compile to codebook predictor |
 
----
+
 
 Based on:
 - [QwenLM/Qwen3-TTS](https://github.com/QwenLM/Qwen3-TTS)
