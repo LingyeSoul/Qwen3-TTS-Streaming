@@ -850,6 +850,8 @@ class Qwen3TTSModel:
         repetition_penalty_window: int = 100,
         # Repetition penalty (disabled by default for streaming to avoid vocabulary starvation)
         repetition_penalty: float = 1.0,
+        # Batch compaction: remove finished items from GPU tensors
+        compact_finished: bool = True,
         **kwargs,
     ) -> Generator[Tuple[List[np.ndarray], int], None, None]:
         """
@@ -962,6 +964,7 @@ class Qwen3TTSModel:
             first_chunk_frames=first_chunk_frames,
             repetition_penalty=repetition_penalty,
             repetition_penalty_window=repetition_penalty_window,
+            compact_finished=compact_finished,
             **gen_kwargs,
         ):
             yield chunks_list, sr
